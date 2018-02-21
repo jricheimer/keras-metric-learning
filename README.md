@@ -1,4 +1,4 @@
-# keras-metric-learning
-Metric Learning Library for Keras
+# Keras Metric Learning
+Deep Metric Learning Library for Keras
 
 ## Under Construction...
