@@ -22,14 +22,7 @@ class RecallAtK(Callback):
 
     def __init__(self, validation_data, validation_steps=1, k=1, metric='euclidean', model_name=None, verbose=False):
         super(RecallAtK, self).__init__()
-        if model_name:
-            self.model = self.model.get_layer(model_name)
-        else:
-            sub_models = [l for l in self.model.layers if isinstance(l, Model)]
-            if len(sub_models) != 1:
-                raise ValueError('Training network must contain exactly one sub-model')
-            self.model = sub_models[0]
-
+        self.model_name = model_name
         self.k = k
         self.metric = metric
         self.validation_data = validation_data
@@ -40,6 +33,14 @@ class RecallAtK(Callback):
         logs = logs or {}
         if 'recall_at_{}'.format(self.k) not in logs:
             logs['recall_at_{}'.format(self.k)] = []
+        if epoch == 0:
+            if self.model_name:
+                self.model = self.model.get_layer(model_name)
+            else:
+                sub_models = [l for l in self.model.layers if isinstance(l, Model)]
+                if len(sub_models) != 1:
+                    raise ValueError('Training network must contain exactly one sub-model')
+                self.model = sub_models[0]
         if isinstance(self.validation_data, GeneratorType):
             val_embeddings = []
             labels = []
@@ -49,7 +50,7 @@ class RecallAtK(Callback):
                 labels.extend(targets)
             val_embeddings = np.concatenate(val_embeddings, axis=0)
             
-        elif isinstance(self.validation_data, tuple) and len(self.validation_data == 2):
+        elif isinstance(self.validation_data, tuple) and len(self.validation_data) == 2:
             val_embeddings = self.model.predict(self.validation_data[0])
             labels = self.validation_data[1]
 
@@ -60,7 +61,7 @@ class RecallAtK(Callback):
         logs['recall_at_{}'.format(self.k)].append(recall)
 
         if self.verbose:
-            print 'Recall@{} on validation: {}'.format(self.k, recall)
+            print '\nRecall@{} on validation: {}'.format(self.k, recall)
 
 
 class NMI(Callback):
@@ -114,4 +115,4 @@ class NMI(Callback):
         logs['nmi'].append(this_nmi)
 
         if self.verbose:
-            print 'NMI on validation: {}'.format(this_nmi)
+            print '\nNMI on validation: {}'.format(this_nmi)

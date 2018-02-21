@@ -17,7 +17,7 @@ def triplet_generator(X, Y, batch_size=32,
     # Returns
         Yields batches of triplets of the form [batch_anchors, batch_positives, batch_negatives]
     """
-    num_classes = Y.max() + 1
+    num_classes = len(set(Y))
 
     # Organize data by class
     samples_by_class = [[] for i in range(num_classes)]
@@ -57,7 +57,7 @@ def pair_generator(X, Y, batch_size):
     # Returns
         Yields batches of triplets of the form [batch_anchors, batch_positives, batch_negatives]
     """
-    num_classes = Y.max() + 1
+    num_classes = len(set(Y))
 
     # Organize data by class
     samples_by_class = [[] for i in range(num_classes)]
@@ -86,3 +86,41 @@ def pair_generator(X, Y, batch_size):
                 batch_list_2.append(samples_by_class[class_inds[1]][sample_inds[1]])
 
         yield ([np.stack(batch_list_1), np.stack(batch_list_2)], labels)
+
+
+def structured_batch_generator(X, Y, num_classes_per_batch, num_samples_per_class,
+                                yield_none_target=True):
+    """Generates structured batches for use with in-batch triplet-mining techniques,\
+        such as Lifted Structured Feature Embedding and Batch-Hard Triplet Loss.
+
+    # Arguments
+        X: The data from which to sample. The first dimension should be num_samples
+        Y: The class labels of shape (num_samples,)
+        num_classes_per_batch: Numer of randomly sampled classes to include in each batch
+        num_samples_per_class:
+
+    # Returns
+        Yields batches of of batch size `num_classes_per_batch*num_samples_per_class`,\
+        with the structure such that the batch is organized by class, i.e. if\
+        num_samples_per_class=k, then the first k samples of the batch are of one class,
+        the second k samples (k+1 - 2k) are from another class, etc.
+    """
+
+    num_classes = len(set(Y))
+
+    # Organize data by class
+    samples_by_class = [[] for i in range(num_classes)]
+    for j in range(X.shape[0]):
+        samples_by_class[Y[j]].append(X[j,...])
+
+    while True:
+        batch_list = []
+        class_inds = rand.sample(range(num_classes), num_classes_per_batch)
+        for c_ind in class_inds:
+            sample_inds = rand.sample(range(len(samples_by_class[c_ind])), num_samples_per_class)
+            batch_list.extend([samples_by_class[s_ind] for s_ind in sample_inds])
+        
+        if yield_none_target:
+            yield (np.stack(batch_list), None)
+        else:
+            yield np.stack(batch_list)
