@@ -2,6 +2,8 @@
 """
 
 from keras import backend as K
+import numpy as np
+from keras.losses import categorical_crossentropy
 
 class ContrastiveLoss(object):
     """Creates contrastive loss function usable in Model.compile()

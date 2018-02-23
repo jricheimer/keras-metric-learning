@@ -1,8 +1,9 @@
 """Useful custom layers for metric learning applications.
 """
 
-from keras.layers import Layer
+from keras.layers import Layer, Dense
 from keras import backend as K
+from keras import losses
 
 def pairwise_dists(A,B, epsilon=1e-6):
     """Helper function to compute pairwise distances between rows in A and rows in B 
@@ -23,7 +24,7 @@ class TripletLoss(Layer):
         mining is done for "hard" or "semi-hard" triplets. 
 
         The output of the layer can be passed to Model.add_loss() as it is\
-        intended ot be minimized directly without comparison to labels.
+        intended to be minimized directly without comparison to labels.
 
         # Arguments
         margin: The margin between inter-class distances and intra-class distances.
@@ -181,7 +182,7 @@ class BatchHardTripletLoss(Layer):
         # Construct the pairwise distance matrix
         D = pairwise_dists(x, x, epsilon=self.epsilon)
         # get the max intra-class distance for each sample
-        max_pos = [K.max(K.tf.slice(D, begin=[i*self.k, i*self.k], size=[self.k, self.k]),axis=1) for i in range(self.p)]
+        max_pos = [K.max(K.tf.slice(D, begin=[i*self.k, i*self.k], size=[self.k, self.k]), axis=1) for i in range(self.p)]
         max_pos = K.concatenate(max_pos, axis=0)
         # get the min inter-class distance for each sample
         min_neg = []
@@ -226,7 +227,7 @@ class NPairsEmbedding(Layer):
         Scalar Tensor 
 
     """
-    def __init__(self, num_classes_per_batch,, margin, reg_coefficient=1.0, **kwargs):
+    def __init__(self, num_classes_per_batch, margin, reg_coefficient=0.002, **kwargs):
         super(NPairsEmbedding, self).__init__(**kwargs)
         self.margin = margin
         self.p = num_classes_per_batch
@@ -254,3 +255,74 @@ class NPairsEmbedding(Layer):
 
     def compute_output_shape(self, input_shape):
         return ()
+
+
+class ClusterLoss(Dense):
+    """This layer (1) returns a classification output obtained by applying a fully-connected
+        layer with softmax activation on the inputs when called; and (2) supplies a loss
+        function to use which incorporates the "cluster loss" (or "center loss") on the embeddings
+        proposed by Wen et al. (http://ydwen.github.io/papers/WenECCV16.pdf)
+
+        [Admittedly, this is a hacky way of achieving this, necessary only due to restrictions
+        imposed by Keras; namely, that only the loss function has access to the labels, but that the
+        loss function has no access to intermediate features of the model, and additionally that
+        its inputs must be of identical shape.]
+
+        # Arguments
+            num_classes: How many classes in the training dataset.
+            center_loss_coeff: How much weight is given to the center loss relative
+                to the cross-entropy loss.
+            center_update_rate: The rate at which to update the class cluster centers.
+
+        # Input shape
+            2D Tensor of shape: `(batch_size, latent_dim)`
+
+        # Output shape
+            2D Tensor of shape: `(batch_size, num_classes)`
+    """
+    def __init__(self, num_classes, center_loss_coeff=0.1, center_update_rate=0.5, **kwargs):
+        super(ClusterLoss, self).__init__(num_classes, use_bias=True, activation='softmax', **kwargs)
+        self.num_classes = num_classes
+        self.center_loss_coeff = center_loss_coeff
+        self.center_update_rate = center_update_rate
+        self.embeddings = None
+
+    def build(self, input_shape):
+        super(ClusterLoss, self).build(input_shape)
+        self.centers = self.add_weight(shape=(self.num_classes, input_shape[-1]),
+                                        name='centers',
+                                        trainable=False,
+                                        initializer='uniform')
+
+    def call(self, x):
+        self.embeddings = x
+        return super(ClusterLoss, self).call(x)
+
+    def loss_function(self, y_true, y_pred):
+        xent_loss = losses.categorical_crossentropy(y_true, y_pred)
+
+        # Compute the distances from the current class-centers to add to loss
+        class_ids = K.tf.argmax(y_true, axis=1, output_type=K.tf.int32)
+        these_class_centers = K.gather( self.centers, class_ids )
+        center_dist = K.sum(K.square(self.embeddings-these_class_centers), axis=1)
+        center_loss = 0.5 * K.mean(center_dist)
+
+        # How many samples per class in this batch:
+        class_nums = K.sum(y_true, axis=0)
+    
+        # compute the differences for the class centers update
+        diffs_arr = []
+        for i in range(self.num_classes):
+            diff = K.cast(K.expand_dims(K.equal(class_ids, i),axis=-1), K.tf.float32) * (these_class_centers-self.embeddings)
+            diff = K.sum(diff, axis=0, keepdims=True)
+            diff = diff / (K.gather(class_nums, i)+1)
+            diffs_arr.append(diff)
+        diffs = K.concatenate(diffs_arr, axis=0)
+        
+        # Update class centers:
+        self.add_update(K.update_sub(self.centers, self.center_update_rate * diffs), inputs=self.embeddings)        
+
+        return xent_loss + self.center_loss_coeff * center_loss
+
+    def compute_output_shape(self, input_shape):
+        return (input_shape[0], int(self.num_classes))
