@@ -118,7 +118,7 @@ def structured_batch_generator(X, Y, num_classes_per_batch, num_samples_per_clas
         class_inds = rand.sample(range(num_classes), num_classes_per_batch)
         for c_ind in class_inds:
             sample_inds = rand.sample(range(len(samples_by_class[c_ind])), num_samples_per_class)
-            batch_list.extend([samples_by_class[s_ind] for s_ind in sample_inds])
+            batch_list.extend([samples_by_class[c_ind][s_ind] for s_ind in sample_inds])
         
         if yield_none_target:
             yield (np.stack(batch_list), None)

@@ -4,6 +4,8 @@
 from keras.layers import Layer, Dense
 from keras import backend as K
 from keras import losses
+from keras import initializers
+import numpy as np
 
 def pairwise_dists(A,B, epsilon=1e-6):
     """Helper function to compute pairwise distances between rows in A and rows in B 
@@ -15,6 +17,14 @@ def pairwise_dists(A,B, epsilon=1e-6):
     dists = normsA - 2*K.tf.matmul(A, B, transpose_b=True) + normsB
     dists = K.sqrt(K.relu(dists)+epsilon)
     return dists
+
+def remove_diag(A):
+    """Helper function to remove diagonal elements from a matrix A 
+    """
+    num_rows = K.shape(A)[0]
+    new_A = K.tf.boolean_mask(A, K.tf.logical_not(K.cast(K.eye(num_rows), K.tf.bool)))
+    new_A = K.reshape(new_A, [num_rows, num_rows-1])
+    return new_A
 
 class TripletLoss(Layer):
     """Computes the triplet distance loss given the triplet embeddings.\
@@ -51,7 +61,7 @@ class TripletLoss(Layer):
         negatives = x[2]
         pos_dists = K.sqrt(K.relu(K.sum(K.square(anchors-positives), axis=1))+self.epsilon)
         neg_dists = K.sqrt(K.relu(K.sum(K.square(anchors-negatives), axis=1))+self.epsilon)
-        return K.relu(pos_dists - neg_dists + self.margin)
+        return K.mean(K.relu(pos_dists - neg_dists + self.margin))
 
 
 class PairDistances(Layer):
@@ -188,17 +198,17 @@ class BatchHardTripletLoss(Layer):
         min_neg = []
         for i in range(self.p):
             left = K.tf.slice(D, begin=[i*self.k, 0], size=[self.k, i*self.k])
-            right = K.tf.slice(D, begin=[i*self.k, (i+1)*self.k], size=[self.k, (self.k-i-1)*self.k])
+            right = K.tf.slice(D, begin=[i*self.k, (i+1)*self.k], size=[self.k, (self.p-i-1)*self.k])
             min_neg.append(K.min(K.concatenate([left, right], axis=1), axis=1))
         min_neg = K.concatenate(min_neg, axis=0)
         
         if self.use_softplus:
-            return K.softplus(self.margin + max_pos - min_neg)
+            return K.mean(K.softplus(self.margin + max_pos - min_neg))
         else:
-            return K.relu(self.margin + max_pos - min_neg)
+            return K.mean(K.relu(self.margin + max_pos - min_neg))
 
     def compute_output_shape(self, input_shape):
-        return (self.p*self.k,)
+        return ()
 
 
 class NPairsEmbedding(Layer):
@@ -232,26 +242,28 @@ class NPairsEmbedding(Layer):
         self.margin = margin
         self.p = num_classes_per_batch
         self.reg_coeff = reg_coefficient
+        
 
     def build(self, input_shape):
         super(NPairsEmbedding, self).build(input_shape)
+        labels = np.zeros((2*self.p, 2*self.p-1))
+        for i in range(self.p):
+            labels[2*i:2*(i+1), 2*i] = 1.
+        self.labels = self.add_weight(name='labels', shape=labels.shape,
+                                        initializer=initializers.Constant(value=labels),
+                                        trainable=False)
 
     def call(self, x):
         embedding_norms = K.tf.norm(x, axis=1)
 
         # Construct the inner-product matrix
         F = K.tf.matmul(x, x, transpose_b=True)
+        # Remove diagonal elements
+        F = K.tf.boolean_mask(F, K.tf.logical_not(K.cast(K.eye(2*self.p), K.tf.bool)))
+        F =  K.reshape(F, [2*self.p, 2*self.p-1])
 
-        J = []
-        # We need to loop through all positive pairs. Since we know
-        # the structure of the batch, this is not too difficult.
-        for c in range(self.p): # Loop through classes
-            negatives = K.concatenate(F[2*c, 0:2*c], F[2*c, 2*(c+1):2*self.p])
-            exp_pos = K.exp(F[2*c, 2*c+1])
-            J.append(K.log(exp_pos / (exp_pos + K.sum(K.exp(negatives)))))
-        
-        J = K.stack(J)
-        return K.mean(J) + self.reg_coeff * K.mean(embedding_norms)
+        return K.mean(K.categorical_crossentropy(target=self.labels, output=F, from_logits=True))
+                    + self.reg_coeff * K.mean(embedding_norms)
 
     def compute_output_shape(self, input_shape):
         return ()
@@ -281,7 +293,7 @@ class ClusterLoss(Dense):
             2D Tensor of shape: `(batch_size, num_classes)`
     """
     def __init__(self, num_classes, center_loss_coeff=0.1, center_update_rate=0.5, **kwargs):
-        super(ClusterLoss, self).__init__(num_classes, use_bias=True, activation='softmax', **kwargs)
+        super(ClusterLoss, self).__init__(num_classes, activation='softmax', **kwargs)
         self.num_classes = num_classes
         self.center_loss_coeff = center_loss_coeff
         self.center_update_rate = center_update_rate

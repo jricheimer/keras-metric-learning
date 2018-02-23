@@ -21,4 +21,3 @@ class ContrastiveLoss(object):
     def loss_function(self, labels, dists):
         loss = (1.-labels) * K.relu(self.repulsion_thresh - dists) + labels * K.relu(dists - self.attraction_thresh)
         return K.mean(loss)
-
