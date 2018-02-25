@@ -35,7 +35,7 @@ class RecallAtK(Callback):
             logs['recall_at_{}'.format(self.k)] = []
         if epoch == 0:
             if self.model_name:
-                self.model = self.model.get_layer(model_name)
+                self.model = self.model.get_layer(self.model_name)
             else:
                 sub_models = [l for l in self.model.layers if isinstance(l, Model)]
                 if len(sub_models) != 1:
