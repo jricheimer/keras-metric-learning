@@ -5,6 +5,7 @@ import numpy as np
 from scipy.spatial.distance import pdist, squareform
 from sklearn.cluster import KMeans
 from sklearn.metrics import normalized_mutual_info_score
+from kml_data_utils import pair_generator, organize_by_class
 
 def recall_at_k(embeddings, labels, k=1, metric='euclidean'):
     """Computes the Recall@K metric
@@ -39,5 +40,11 @@ def nmi(embeddings, labels, metric='euclidean'):
     kmeans.fit(embeddings)
     return normalized_mutual_info_score(labels, kmeans.labels_)
 
-def plot_distance_distributions(test_data, num_pairs=10000, num_bins=100):
-    pass
+def plot_distance_distributions(embeddings, labels, num_pairs=10000, num_bins=100):
+    negative_distances = []
+    positive_distances = []
+    pos_gen = pair_generator(organize_by_class(embeddings, labels), all_similar=True)
+    while (len(positive_distances) < num_pairs/2):
+        pairs = pos_gen.next()
+        
+        

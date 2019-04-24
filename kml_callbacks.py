@@ -5,7 +5,7 @@ from keras.models import Model
 from keras.callbacks import Callback
 import numpy as np
 from types import GeneratorType
-from utils import recall_at_k, nmi
+from kml_utils import recall_at_k, nmi
 
 class RecallAtK(Callback):
     """Callback that computes the Recall@k metric for a given validation set at the end of each epoch.
@@ -25,11 +25,12 @@ class RecallAtK(Callback):
         self.model_name = model_name
         self.k = k
         self.metric = metric
-        self.validation_data = validation_data
-        self.validation_steps = validation_steps
+        # self.validation_data = validation_data
+        # self.validation_steps = validation_steps
         self.verbose = verbose
 
     def on_epoch_end(self, epoch, logs=None):
+
         logs = logs or {}
         if 'recall_at_{}'.format(self.k) not in logs:
             logs['recall_at_{}'.format(self.k)] = []
@@ -38,24 +39,23 @@ class RecallAtK(Callback):
                 self.model = self.model.get_layer(self.model_name)
             else:
                 sub_models = [l for l in self.model.layers if isinstance(l, Model)]
-                if len(sub_models) != 1:
-                    raise ValueError('Training network must contain exactly one sub-model')
-                self.model = sub_models[0]
-        if isinstance(self.validation_data, GeneratorType):
-            val_embeddings = []
-            labels = []
-            for i in range(self.validation_steps):
-                data, targets = self.validation_data.next()
-                val_embeddings.append(self.model.predict(data))
-                labels.extend(targets)
-            val_embeddings = np.concatenate(val_embeddings, axis=0)
+                if len(sub_models) == 1:
+                    self.model = sub_models[0]
+        # if isinstance(self.validation_data, GeneratorType):
+        #     val_embeddings = []
+        #     labels = []
+        #     for i in range(self.validation_steps):
+        #         data, targets = self.validation_data.next()
+        #         val_embeddings.append(self.model.predict(data))
+        #         labels.extend(targets)
+        #     val_embeddings = np.concatenate(val_embeddings, axis=0)
             
-        elif isinstance(self.validation_data, tuple) and len(self.validation_data) == 2:
-            val_embeddings = self.model.predict(self.validation_data[0])
-            labels = self.validation_data[1]
+        # elif isinstance(self.validation_data, tuple) and len(self.validation_data) == 2:
+        val_embeddings = self.model.predict(self.validation_data[0])
+        labels = self.validation_data[1]
 
-        else:
-            raise ValueError('validation_data must be either a generator object or a tuple (X,Y)')
+        # else:
+        #     raise ValueError('validation_data must be either a generator object or a tuple (X,Y)')
 
         recall = recall_at_k(val_embeddings, labels, k=self.k, metric=self.metric)    
         logs['recall_at_{}'.format(self.k)].append(recall)

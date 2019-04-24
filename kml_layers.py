@@ -80,7 +80,7 @@ class PairDistances(Layer):
 
     """
 
-    def __init__(self, epsilon=1e-6, **kwargs):
+    def __init__(self, metric='l2', epsilon=1e-6, **kwargs):
         self.epsilon = epsilon
         super(PairDistances, self).__init__(**kwargs)
 
@@ -88,7 +88,12 @@ class PairDistances(Layer):
         super(PairDistances, self).build(input_shape)
 
     def call(self, x):
-        dists = K.sqrt(K.relu(K.sum(K.square(x[0]-x[1]), axis=1))+self.epsilon)
+        if metric == 'l2':
+            dists = K.sqrt(K.relu(K.sum(K.square(x[0]-x[1]), axis=1))+self.epsilon)
+        elif metric == 'l1':
+            dists = K.sum(K.abs(x[0]-x[1]), axis=1)
+        else:
+            raise ValueError()
         return K.expand_dims(dists, axis=-1)
 
 
@@ -262,7 +267,7 @@ class NPairsEmbedding(Layer):
         F = K.tf.boolean_mask(F, K.tf.logical_not(K.cast(K.eye(2*self.p), K.tf.bool)))
         F =  K.reshape(F, [2*self.p, 2*self.p-1])
 
-        return K.mean(K.categorical_crossentropy(target=self.labels, output=F, from_logits=True))
+        return K.mean(K.categorical_crossentropy(target=self.labels, output=F, from_logits=True)) \
                     + self.reg_coeff * K.mean(embedding_norms)
 
     def compute_output_shape(self, input_shape):

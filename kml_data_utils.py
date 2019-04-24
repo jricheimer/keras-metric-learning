@@ -60,7 +60,8 @@ def triplet_generator(data, batch_size=32,
         else:
             yield x_list
 
-def pair_generator(data, batch_size):
+def pair_generator(data, batch_size, all_similar=False,
+                                all_dissimilar=False):
     """Generates pair samples randomly for training Siamese network
 
     # Arguments
@@ -71,13 +72,20 @@ def pair_generator(data, batch_size):
         Yields batches of pairs of the form ([batch_1, batch_2], pairwise_labels)
     """
     class_ids = data.keys()
+    if all_dissimilar and all_similar:
+        raise ValueError()
 
     while True:
 
         batch_list_1 = []
         batch_list_2 = []
-
-        labels = np.random.randint(2, size=(batch_size,))
+        
+        if all_similar:
+            labels = np.ones(shape=(batch_size,))
+        elif all_dissimilar:
+            labels = np.zeros(shape=(batch_size,))
+        else:
+            labels = np.random.randint(2, size=(batch_size,))
         for batch_ind in range(batch_size):
             
             if labels[batch_ind] == 1:
@@ -130,3 +138,45 @@ def structured_batch_generator(data, num_classes_per_batch, num_samples_per_clas
             yield (np.stack(batch_list), None)
         else:
             yield np.stack(batch_list)
+
+def random_sample_generator(data, batch_size=32, label_map=None, classes_per_batch=None, class_to_batch_ratio=None):
+    """
+    # Arguments
+        data: dict containing numpy arrays for each class, or h5py Group containing h5py Dataset for each class.
+        batch_size: 
+        label_map: A function that maps the class names (keys of the dataset dict or hdf5 datasets)\
+            to a class index 0 - (num_classes-1).
+        classes_per_batch: restricts the sampling to a provided fixed number of classes in each batch
+        class_to_batch_ratio: Alternative to `classes_per_batch`. If both are specified, `classes_per_batch` will be used.
+
+    # Returns
+        Yields a batch of random samples from the dataset with corresponding class integer labels
+    """
+    class_ids = data.keys()
+    
+    if not label_map:
+        # If the class ids are ints, assume they can be used as labels directly
+        if all([type(i) is int for i in class_ids]) and (max(class_ids) == len(class_ids)-1):
+            label_map = lambda i: i
+        # Otherwise assign its index in the class_ids list
+        else:
+            label_map = lambda i: class_ids.index(i)
+
+    while True:
+        batch_list = []
+        label_list = []
+        if class_to_batch_ratio and not classes_per_batch:
+            classes_per_batch = int(class_to_batch_ratio * batch_size)
+        if not classes_per_batch:
+            batch_class_ids = [rand.choice(class_ids) for _ in range(batch_size)]
+        else:
+            batch_class_ids = rand.sample(class_ids, classes_per_batch)        
+
+        for _ in range(batch_size):
+            class_id = rand.choice(batch_class_ids)
+            sample_ind = np.random.randint(data[class_id].shape[0])
+            batch_list.append(data[class_id][sample_ind,...])
+            # This works for the Stanford products dataset
+            label_list.append(label_map(class_id))
+        
+        yield(np.stack(batch_list), np.stack(label_list))
